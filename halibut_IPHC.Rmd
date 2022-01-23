@@ -1,0 +1,149 @@
+---
+title: "IPHC data - halibut"
+author: "Alberto Rovellini"
+date: "01/21/2022"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(rbgm)
+library(sf)
+library(viridis)
+library(maps)
+library(mapdata)
+library(data.table)
+```
+
+```{r}
+select <- dplyr::select
+```
+
+Explore the IPHC longline data, to get some distributions of Pacific Halibut. These will be compared with the distributions that we got from bottom trawl surveys for dogfish.  
+
+Need to look into what this RPN business is.
+```{r}
+dat <- read.csv('../data/IPHC/fiss_cleaned_09222021.csv')
+
+atlantis_bgm <- read_bgm('../data/GOA_WGS84_V4_final.bgm')
+atlantis_box <- atlantis_bgm %>% box_sf()
+# utilities
+atlantis_crs <- atlantis_bgm$extra$projection
+atlantis_bbox <- atlantis_box %>% st_bbox()
+```
+
+Check how many data points there are for each species, and which years we have surveys for.
+```{r}
+dat %>% select(SPECIES_COMMON_NAME) %>% group_by(SPECIES_COMMON_NAME) %>% tally() %>% arrange(desc(n))
+dat %>% select(SURVEY_YEAR) %>% distinct() %>% pull() %>% sort()
+```
+
+Extract halibut.
+```{r}
+#dat %>% select(SPECIES_COMMON_NAME) %>% distinct() %>% arrange(SPECIES_COMMON_NAME) %>%  pull()
+
+halibut <- dat %>% 
+  filter(SPECIES_COMMON_NAME=='Pacific Halibut' & IPHC_REG %in% c('4A','3B','3A','2C','2B')) %>%
+  select(FISHING_EVENT_ID,SURVEY_YEAR,IPHC_REG,START_LAT,START_LON,AVG_DEPTH_M,HOOKS_RETRIEVED,EX_EFF_HOOKS,SUBSAMPLE,OBS_CATCH)
+```
+
+View in space.
+```{r}
+coast <- maps::map("worldHires", c("USA","Canada"), plot = FALSE, fill = TRUE)
+coast_sf <- coast %>% st_as_sf() #%>% st_transform(crs = atlantis_crs)
+
+halibut_sf <- halibut %>% st_as_sf(coords=c('START_LON','START_LAT'),crs=4326)
+halibut_bbox <- halibut_sf %>% st_bbox()
+
+halibut_sf %>% ggplot()+
+  geom_sf(aes(color=log1p(OBS_CATCH)))+
+  scale_color_viridis()+
+  geom_sf(data=coast_sf)+
+  coord_sf(xlim=c(halibut_bbox$xmin,halibut_bbox$xmax), ylim=c(halibut_bbox$ymin,halibut_bbox$ymax))+
+  facet_wrap(~SURVEY_YEAR)+
+  theme_bw()
+```
+
+Let's get the fishing events in these Regulatory Areas that did not catch any halibuts.
+```{r}
+these_events <- dat %>% filter(IPHC_REG %in% c('4A','3B','3A','2C','2B')) %>%
+  select(FISHING_EVENT_ID,SURVEY_YEAR,IPHC_REG,START_LAT,START_LON,AVG_DEPTH_M,HOOKS_RETRIEVED,EX_EFF_HOOKS,SUBSAMPLE,OBS_CATCH) %>% 
+  select(FISHING_EVENT_ID) %>% 
+  distinct() %>% 
+  pull()
+
+halibut_events <- halibut %>%  select(FISHING_EVENT_ID) %>%  distinct() %>% pull()
+
+# build a dataframe with events that had zero catch for halibut
+no_halibut_events <- setdiff(these_events,halibut_events)
+
+no_halibut_frame <- dat %>% 
+  filter(FISHING_EVENT_ID %in% no_halibut_events & IPHC_REG %in% c('4A','3B','3A','2C','2B')) %>% 
+  select(FISHING_EVENT_ID,SURVEY_YEAR,IPHC_REG,START_LAT,START_LON,AVG_DEPTH_M,HOOKS_RETRIEVED,EX_EFF_HOOKS,SUBSAMPLE) %>% 
+  distinct() %>%
+  mutate(OBS_CATCH=0)
+
+halibut_all <- rbind(halibut,no_halibut_frame) # slightly longer than the sum of events, meaning that some events are duplicated. Explore below
+
+dups <- halibut_all %>% group_by(FISHING_EVENT_ID) %>% tally() %>% filter(n>1) %>% select(FISHING_EVENT_ID) %>% pull()
+dups_halibut <- halibut_all %>% filter(FISHING_EVENT_ID %in% dups) %>% distinct() # weirdly, it picks up some differences between pairs of these, although they look the same. probably negligible difference
+```
+
+View.
+```{r}
+halibut_all_sf <- halibut_all %>% st_as_sf(coords=c('START_LON','START_LAT'),crs=4326)
+halibut_all_bbox <- halibut_all_sf %>% st_bbox()
+
+halibut_all_sf %>% ggplot()+
+  geom_sf(aes(color=log1p(OBS_CATCH)))+
+  scale_color_viridis()+
+  geom_sf(data=coast_sf)+
+  coord_sf(xlim=c(halibut_bbox$xmin,halibut_bbox$xmax), ylim=c(halibut_bbox$ymin,halibut_bbox$ymax))+
+  facet_wrap(~SURVEY_YEAR)+
+  theme_bw()
+```
+This is a big dataset with a lot of points. May be worth trying with sdmTMB, the issue is getting a CPUE from the hook counts.
+
+Have a look at the observed catch per subsampling. The metadata say about the 'subsample' field: "Sampling scheme (1=20 hooks counted near the beginning of skate is standard in U.S. reg areas except one year in SEAK for yelloweye; 2=100% hook count is standard in Canadian reg areas)". However, the data contain 0 and 1 as values for SUBSAMPLE.
+```{r}
+subsample <- dat %>% select(OBS_CATCH,SUBSAMPLE,IPHC_REG)
+
+t <- subsample %>% group_by(IPHC_REG,SUBSAMPLE) %>% tally() # area 2B (Canada) seems to be the only area where there is a prevalence of 0, which I'd interpret as (no subsampling)
+
+subsample %>% #filter(OBS_CATCH>0) %>% 
+  ggplot()+
+  geom_boxplot(aes(x = factor(SUBSAMPLE), y=OBS_CATCH)) # 0 seems to present higher catches, hinting that 0 means no subsampling
+```
+
+It seems that if SUBSAMPLE=1 they do the subsampling, i.e. they only count the first 20 hooks. If SUBSAMPLING=0, they count all hooks on the skate. So, if SUBSAMPLING==1, OBS_CATCH=OBS_CATCH*5.
+```{r}
+halibut_all <- halibut_all %>% rowwise() %>% mutate(CATCH=ifelse(SUBSAMPLE==1,OBS_CATCH*5,OBS_CATCH))
+```
+
+Not 100% convinced that the adjustment for subsample is correct. Divide by hook number to get NPUE.
+```{r}
+halibut_all <- halibut_all %>% mutate(NPUE=CATCH/EX_EFF_HOOKS)
+```
+
+Prepare this for the sdmTMB code.
+```{r}
+halibut_all <- halibut_all %>% select(SURVEY_YEAR,FISHING_EVENT_ID,START_LAT,START_LON,AVG_DEPTH_M,NPUE) %>% 
+  set_names(c(
+  "year",
+  "hauljoin",
+  "lat",
+  "lon",
+  "depth",
+  "npue"))
+
+saveRDS(halibut_all,'../data/IPHC/halibut.RDS')
+```
+
