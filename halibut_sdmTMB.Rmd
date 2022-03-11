@@ -18,6 +18,7 @@ library(viridis)
 library(maps)
 library(mapdata)
 library(data.table)
+library(kableExtra)
 ```
 
 # Purpose
@@ -99,13 +100,30 @@ halibut_data <- halibut_data_sf %>%
   st_set_geometry(NULL) %>% 
   data.frame(halibut_coords)
 ```
+
+Adding an `sf` object of the coastline to incorporate in the mesh.
+```{r}
+data_bbox <- halibut_data_sf %>% st_bbox()
+coast_mesh <- coast_sf %>% st_transform(crs=atlantis_bgm$extra$projection) %>%
+  st_crop(data_bbox)
+```
+
 Using the "cutoff" argument, instead of predefining the number of points. T
 
 **Note:** SPDE = Stochastic Partial Differential Equations approach. Some material can be found [here](https://becarioprecario.bitbucket.io/spde-gitbook/ch-intro.html#sec:spde), but basically it is a way of calculating the position of the mesh knots. 
 
 ```{r}
 halibut_spde <- make_mesh(halibut_data, c("x", "y"), cutoff = 20, type = "cutoff")
-plot(halibut_spde)
+
+# add barrier
+halibut_spde <- add_barrier_mesh(
+  spde_obj = halibut_spde,
+  barrier_sf = coast_mesh,
+  range_fraction = 0.1,
+  proj_scaling = 1000, # data km but projection m
+  plot = TRUE
+)
+
 halibut_spde$mesh$n
 ```
 
@@ -131,37 +149,35 @@ Try running a model with smooth term for depth. Using 5 knots for the smooth - b
 
 ```{r, results = FALSE}
 m_depth <- sdmTMB(
-  data = halibut_data, 
-  formula = npue ~ 0 + s(depth, k = 5) + as.factor(year), 
-  time = "year", 
-  spde = halibut_spde, 
-  reml = TRUE,
-  anisotropy = FALSE,
-  spatial_trend = FALSE, 
-  spatial_only = FALSE,
-  silent = FALSE,
-  control = sdmTMBcontrol(),
-  # nlminb_loops = 3,
-  # newton_steps = 10,
-  family = tweedie(link = "log"))
+    data = halibut_data, 
+    formula = npue ~ 0 + s(depth, k = 5) + as.factor(year), 
+    mesh = halibut_spde, 
+    time = "year", 
+    spatial = 'on',
+    spatiotemporal = 'iid', # spatiotemporal random fields independent and identically distributed
+    reml = TRUE,
+    anisotropy = FALSE,
+    silent = FALSE,
+    family = tweedie(link = "log"))
 ```
 
 Rerun with extra optimization steps in case of gradient > 0.001. 
 ```{r, results = FALSE}
 if(abs(max(m_depth$gradients))>0.001){
+  
   m_depth <- sdmTMB(
-  data = halibut_data, 
-  formula = npue ~ 0 + s(depth, k = 5) + as.factor(year), 
-  time = "year", 
-  spde = halibut_spde, 
-  reml = TRUE,
-  anisotropy = FALSE,
-  spatial_trend = FALSE, 
-  spatial_only = FALSE,
-  silent = FALSE,
-  control = sdmTMBcontrol(nlminb_loops = 1, newton_steps = 3),
-  family = tweedie(link = "log"))
-end.time <- Sys.time()
+    data = halibut_data, 
+    formula = npue2 ~ 0 + s(depth, k = 5) + as.factor(year), 
+    mesh = halibut_spde, 
+    time = "year", 
+    spatial = 'on',
+    spatiotemporal = 'iid', # spatiotemporal random fields independent and identically distributed
+    reml = TRUE,
+    anisotropy = FALSE,
+    silent = FALSE,
+    control = sdmTMBcontrol(nlminb_loops = 2, newton_loops = 3),
+    family = tweedie(link = "log"))
+  
 }
 ```
 
@@ -169,8 +185,8 @@ Check information on model convergence. From [the nlminb help page](https://rdrr
 ```{r}
 if(m_depth$model$convergence == 0){print("The model converged.")} else {print("Check convergence issue.")}
 m_depth$model$message
-max(m_depth$gradients)
-m_depth$tmb_obj$report()$range
+max(m_depth$gradients) # 
+tidy(m_depth, effects = 'ran_pars') %>% filter(term=='range') %>% pull(estimate) # matern range
 ```
 The range is a parameter that indicates the distance at which autocorrelation in the data drops to about 0.13. A large range means that spatial autocorrelation decays more slowly with distance. A smaller range will require more knots. The range can be obtained from the model object, but it always seems to be larger than the cutoff argunemt we choose to create the INLA mesh. Let's make sure that the range is always larger than the cutoff.
 
@@ -188,9 +204,9 @@ qqnorm(halibut_data$resids)
 abline(a = 0, b = 1)
 ```
 
-Plot the response curve from the depth smooth term.
+Plot the response curve from the depth smooth term. With 3/10/2022 install something has changed with this function, it takes a very long time to produce a plot and produces a couple of warnings - plus the plot looks substantially different from how it used to (but is it the model?).
 ```{r}
-plot(m_depth$mgcv_mod, rug = TRUE)
+plot_smooth(m_depth, ggplot = T)
 ```
 
 Finally, plot the residuals in space. If residuals are constantly larger/smaller in some of the areas, it may be sign that the model is biased and it over/underpredicts consistently for some areas. Residuals should be randomly distributed in space. 
@@ -485,6 +501,6 @@ s <- atlantis_boxes %>%
 # s %>% ggplot()+geom_sf(aes(fill=prop))+scale_fill_viridis()+theme_bw()
 
 # write that out
-s %>% st_set_geometry(NULL) %>% select(.bx0,prop) %>% write.csv('s1s4.csv', row.names = FALSE)
+s %>% st_set_geometry(NULL) %>% select(.bx0,prop) %>% write.csv('s1s4_1.csv', row.names = FALSE)
 ```
 
