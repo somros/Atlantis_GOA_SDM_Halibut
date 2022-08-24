@@ -1,5 +1,5 @@
 ---
-title: "Adult Pacific halibut NPUE with sdmTMB - lat, lon, depth"
+title: "Adult Pacific halibut CPUE with sdmTMB - lat, lon, depth"
 author: "Alberto Rovellini"
 date: "10/28/2021"
 output:
@@ -23,7 +23,7 @@ library(kableExtra)
 
 # Purpose
 
-This document applies the sdmTMB routine to the IPHC FISS data filtered to focus on Pacific halibut *Hippoglossus stenolepis*. This is longline data that cannot be standardized by area like CPUE for the bottom trawl surveys could be. NPUE was calculated as number of individuals per hook for each soak. See file halibut_IPHC.Rmd for details on how the data for the models was created.
+This document applies the sdmTMB routine to the IPHC FISS data filtered to focus on Pacific halibut *Hippoglossus stenolepis*. This is longline data that cannot be standardized by area like CPUE for the bottom trawl surveys could be. CPUE was calculated as weight of halibut (legal and sublegal) per effective hook for each soak. See file halibut_IPHC.Rmd for details on how the data for the models was created.
 
 Data received from the AKFIN team (Jean Lee) on October 22 2021 - did not query this myself from IPHC.
 
@@ -48,25 +48,25 @@ coast_sf <- coast %>% st_as_sf() #%>% st_transform(crs = atlantis_crs)
 halibut_bbox <- halibut_data %>% st_as_sf(coords=c('lon','lat'),crs=4326) %>% st_bbox()
 
 ggplot()+
-  geom_point(data = halibut_data, aes(lon, lat, colour = log1p(npue)), size = 1.5)+
+  geom_point(data = halibut_data, aes(lon, lat, colour = log1p(cpue)), size = 1.5)+
   scale_colour_viridis_c()+
   #geom_polygon(data = coast, aes(x = long, y = lat, group = group), colour = "black", fill = "grey80")+
   geom_sf(data=coast_sf)+
   coord_sf(xlim=c(halibut_bbox$xmin,halibut_bbox$xmax), ylim=c(halibut_bbox$ymin,halibut_bbox$ymax))+
   theme_minimal()+
   facet_wrap(~year, ncol = 3)+
-  labs(title = "NPUE from IPHC surveys")
+  labs(title = "CPUE from IPHC surveys")
 ```
 
 Take a quick look at time series of total CPUE from raw data
 ```{r}
-biom_year <- halibut_data %>% group_by(year) %>% summarise(npue = sum(npue))
+biom_year <- halibut_data %>% group_by(year) %>% summarise(cpue = sum(cpue))
 
-ggplot(biom_year, aes(year, log(npue)))+
+ggplot(biom_year, aes(year, log(cpue)))+
   geom_point()+
   geom_path()+
   theme_minimal()+
-  labs(title = "NPUE from IPHC surveys")
+  labs(title = "CPUE from IPHC surveys")
 ```
 The above is across the entire GOA. 
 
@@ -129,16 +129,16 @@ halibut_spde$mesh$n
 
 Check out the distribution of the biomass response variable.
 ```{r}
-hist(halibut_data$npue, breaks = 30)
+hist(halibut_data$cpue, breaks = 30)
 ```
 
 ```{r}
-hist(log1p(halibut_data$npue), breaks = 30)
+hist(log1p(halibut_data$cpue), breaks = 30)
 ```
 
 Proportion of zeroes in percentage.
 ```{r}
-length(which(halibut_data$npue == 0))/nrow(halibut_data)*100
+length(which(halibut_data$cpue == 0))/nrow(halibut_data)*100
 ```
 
 ## Space, time, and depth model.
@@ -150,7 +150,7 @@ Try running a model with smooth term for depth. Using 5 knots for the smooth - b
 ```{r, results = FALSE}
 m_depth <- sdmTMB(
     data = halibut_data, 
-    formula = npue ~ 0 + s(depth, k = 3) + as.factor(year), 
+    formula = cpue ~ 0 + s(depth, k = 3) + as.factor(year), 
     mesh = halibut_spde, 
     time = "year", 
     spatial = 'on',
@@ -167,7 +167,7 @@ if(abs(max(m_depth$gradients))>0.001){
   
   m_depth <- sdmTMB(
     data = halibut_data, 
-    formula = npue2 ~ 0 + s(depth, k = 3) + as.factor(year), 
+    formula = cpue ~ 0 + s(depth, k = 3) + as.factor(year), 
     mesh = halibut_spde, 
     time = "year", 
     spatial = 'on',
@@ -288,9 +288,9 @@ ggplot()+
   geom_sf(data = subset(atlantis_grid_sf), aes(color=log1p(estimates)))+ # taking the log for visualisation
   # geom_sf(data=coast_sf)+
   # coord_sf(xlim=c(halibut_bbox$xmin,halibut_bbox$xmax), ylim=c(halibut_bbox$ymin,halibut_bbox$ymax))+
-  scale_color_viridis(name = expression(paste("Log(NPUE) ind ", hook^-1)))+
+  scale_color_viridis(name = expression(paste("Log(CPUE) lbs ", hook^-1)))+
   theme_minimal()+
-  labs(title = "Predicted NPUE")+
+  labs(title = "Predicted CPUE")+
   facet_wrap(~year, ncol = 2)
 ```
 
@@ -310,36 +310,36 @@ predictions_by_box <- predictions_by_box %>% rowwise() %>% mutate(mean_estimates
 
 ggplot()+
   geom_sf(data = predictions_by_box, aes(fill = log1p(mean_estimates)))+ # taking the log for visualisation
-  scale_fill_viridis(name = expression(paste("Log(NPUE) ind ", hook^-1)))+
+  scale_fill_viridis(name = expression(paste("Log(CPUE) lbs ", hook^-1)))+
   theme_minimal()+
   #geom_sf(data = coast_sf, colour = "black", fill = "grey80")+
   facet_wrap(~year, ncol = 2)+
-  labs(title = "mean predicted NPUE by Atlantis box")
+  labs(title = "mean predicted CPUE by Atlantis box")
 ```
 
 Plot the raw data again for comparison.
 ```{r, fig.width = 12, fig.height = 18}
 ggplot()+
-  geom_sf(data = halibut_data_sf, aes(colour = log1p(npue)), size = 1.5, alpha = .5)+
-  scale_colour_viridis_c(name = expression(paste("Log(NPUE) ind ", hook^-1)))+
+  geom_sf(data = halibut_data_sf, aes(colour = log1p(cpue)), size = 1.5, alpha = .5)+
+  scale_colour_viridis_c(name = expression(paste("Log(CPUE) lbs ", hook^-1)))+
   #geom_sf(data = coast_sf, colour = "black", fill = "grey80")+
   theme_minimal()+
   facet_wrap(~year, ncol = 2)+
-  labs(title = "mean predicted NPUE by Atlantis box")
+  labs(title = "mean predicted CPUE by Atlantis box")
 ```
 
 Have a look at CPUE by depth. This is rough and quick, keep in mind that most tows happen shallower than 300 m, so the sample is not equal between depths.
 ```{r}
-ggplot(data = halibut_data, aes(x = depth, y = log1p(npue)))+
+ggplot(data = halibut_data, aes(x = depth, y = log1p(cpue)))+
   scale_color_viridis()+
   geom_point()+
   theme_minimal()+
-  labs(title = "NPUE by depth")
+  labs(title = "CPUE by depth")
 ```
 
 Plot data and predictions distributions. These are the data.
 ```{r}
-ggplot(data = halibut_data, aes(x = log1p(npue)))+
+ggplot(data = halibut_data, aes(x = log1p(cpue)))+
   geom_histogram(colour = "black", fill = 'grey80', bins = 30)+
   theme_minimal()
 ```
@@ -355,26 +355,26 @@ ggplot(data = atlantis_grid, aes(x = log1p(estimates)))+
 
 Now calculate means of the predictions for the entire study period. Doing it by taking 1984-2019 averages for each Atlantis box.
 ```{r, fig.width = 10, fig.height = 5}
-means_all_years <- predictions_by_box %>% group_by(box_id, area, boundary) %>% summarise(all_years_npue = mean(mean_estimates)) %>% ungroup()
+means_all_years <- predictions_by_box %>% group_by(box_id, area, boundary) %>% summarise(all_years_cpue = mean(mean_estimates)) %>% ungroup()
 
 ggplot()+
-  geom_sf(data = means_all_years, aes(fill = log1p(all_years_npue)))+ # log for visualisation
-  scale_fill_viridis(name = expression(paste("Log(NPUE) ind ", hook^-2)))+
+  geom_sf(data = means_all_years, aes(fill = log1p(all_years_cpue)))+ # log for visualisation
+  scale_fill_viridis(name = expression(paste("Log(CPUE) lbs ", hook^-1)))+
   #geom_sf(data = coast_sf, colour = "black", fill = "grey80")+
   theme_minimal()+
-  labs(title = "Mean predicted NPUE by Atlantis box (1998-2019)")
+  labs(title = "Mean predicted CPUE by Atlantis box (1998-2019)")
 ```
 
-Let's have a look at the variance per box over all years. We use the coefficient of variation, because NPUE varies widely between boxes.
+Let's have a look at the variance per box over all years. We use the coefficient of variation, because CPUE varies widely between boxes.
 ```{r, fig.width = 10, fig.height = 5}
 cv_all_years <- predictions_by_box %>% group_by(box_id, area, boundary) %>% summarise(cv = sd(mean_estimates)/mean(mean_estimates)) %>% ungroup()
 
 ggplot()+
   geom_sf(data = cv_all_years, aes(fill = cv))+ # log for visualisation
-  scale_fill_viridis(name = "CV of NPUE")+
+  scale_fill_viridis(name = "CV of CPUE")+
   #geom_sf(data = coast_sf, colour = "black", fill = "grey80")+
   theme_minimal()+
-  labs(title = "CV of predicted NPUE by Atlantis box (1998-2019)")
+  labs(title = "CV of predicted CPUE by Atlantis box (1998-2019)")
 ```
 The high CV in the Shelikof Strait reflects the fact that catches in the IPHC data have increased in that area recently. 
 
@@ -416,25 +416,25 @@ halibut_corr <- halibut_data %>% left_join(halibut_grid, by = c("year", "y", "x"
 ## Observed versus predicted
 
 ```{r}
-paste0("Pearson's coef observations vs predictions: ", cor(halibut_corr$npue, halibut_corr$predictions, use = "everything", method = "pearson"))
+paste0("Pearson's coef observations vs predictions: ", cor(halibut_corr$cpue, halibut_corr$predictions, use = "everything", method = "pearson"))
 ```
 
 Plot.
 ```{r, fig.width = 12, fig.height = 12}
-ggplot(halibut_corr, aes(x = log1p(npue), y = log1p(predictions)))+ # log for visualisation
+ggplot(halibut_corr, aes(x = log1p(cpue), y = log1p(predictions)))+ # log for visualisation
   geom_point(aes(color = depth.y))+
   scale_color_viridis()+
   geom_abline(intercept = 0, slope = 1)+
   theme_minimal()+
   facet_wrap(~year, scales = "free")+
-  labs(title = "Observed vs predicted NPUE")
+  labs(title = "Observed vs predicted CPUE")
 ```
 
 These models often underpredict zeroes, i.e. they predict a catch where there was none. Does this happen randomly in space? Does it have a correlation of some kind with depth?
 
 Plot zero catch from the data and the relative predictions. Turn to sf for plotting.
 ```{r, fig.width = 12, fig.height = 18}
-halibut_corr %>% filter(npue == 0) %>%
+halibut_corr %>% filter(cpue == 0) %>%
   mutate(x=x*1000,y=y*1000) %>%
   st_as_sf(coords = c(x = "x", y = "y"), crs = atlantis_bgm$extra$projection) %>%
   ggplot()+
@@ -450,7 +450,7 @@ What about the relationship between model residuals and depth?
 ```{r, fig.width = 12, fig.height=16}
 halibut_data %>%
   ggplot()+
-  geom_point(aes(x = depth, y = resids, color = log1p(npue)))+
+  geom_point(aes(x = depth, y = resids, color = log1p(cpue)))+
   geom_hline(yintercept = 0, color = "red", linetype = "dashed")+
   scale_color_viridis()+
   theme_minimal()+
@@ -463,12 +463,12 @@ There does not seem to be an obvious relationship between depth and residuals.
 
 Calculate RMSE between predicted and observed values.
 ```{r}
-paste("RMSE:", sqrt(sum((halibut_corr$predictions - halibut_corr$npue)^2)/nrow(halibut_corr)), " ind hook-1", sep = " ") ### traditional rmse metric, in units kg km2
+paste("RMSE:", sqrt(sum((halibut_corr$predictions - halibut_corr$cpue)^2)/nrow(halibut_corr)), " lbs hook-1", sep = " ") ### traditional rmse metric, in units kg km2
 ```
 
 Normalised RMSE. 
 ```{r}
-rmse_cv <- sqrt(sum((halibut_corr$predictions - halibut_corr$npue)^2)/nrow(halibut_corr))/(max(halibut_corr$npue)-min(halibut_corr$npue))*100 #### normalised rmse, expressed as a % of the range of observed biomass values, sort of approximates a coefficient of variation 
+rmse_cv <- sqrt(sum((halibut_corr$predictions - halibut_corr$cpue)^2)/nrow(halibut_corr))/(max(halibut_corr$cpue)-min(halibut_corr$cpue))*100 #### normalised rmse, expressed as a % of the range of observed biomass values, sort of approximates a coefficient of variation 
 paste("Normalised RMSE:", paste0(rmse_cv, "%"), sep = " ")
 ```
 
@@ -476,31 +476,31 @@ paste("Normalised RMSE:", paste0(rmse_cv, "%"), sep = " ")
 
 For Pacific Halibut, using this data seems a better option than the RACE-GAP data, because the data from BC throw those predictions out of whack.
 
-The problem is that these are NPUEs in fish per hook. Multiplying these by areas makes no sense, but to obtain an abstract abundance index that then we use to work out relative proportions per box it should be OK.
+The problem is that these are CPUEs in fish weight per hook. Multiplying these by areas makes no sense, but to obtain an abstract abundance index that then we use to work out relative proportions per box it should be OK.
 
 1. Add the empty boxes.
-2. Assign the lowest NPUE to all NA boxes (including boundary and islands)
-3. Multiply NPUEs by areas.
+2. Assign the lowest CPUE to all NA boxes (including boundary and islands)
+3. Multiply CPUEs by areas.
 4. Set boundary and islands to 0
 5. Work out the proportions as index/sum(index)
 
 ```{r}
-minnpue <- min(means_all_years$all_years_npue, na.rm=T)
+mincpue <- min(means_all_years$all_years_cpue, na.rm=T)
 
 s <- atlantis_boxes %>%
-  left_join(means_all_years %>% st_set_geometry(NULL) %>% select(box_id,all_years_npue), by = 'box_id') %>%
+  left_join(means_all_years %>% st_set_geometry(NULL) %>% select(box_id,all_years_cpue), by = 'box_id') %>%
   rowwise() %>%
-  mutate(all_years_npue = ifelse(isTRUE(boundary) | botz==0,
+  mutate(all_years_cpue = ifelse(isTRUE(boundary) | botz==0,
                                  0,
-                                 ifelse(is.na(all_years_npue),minnpue,all_years_npue))) %>%
+                                 ifelse(is.na(all_years_cpue),mincpue,all_years_cpue))) %>%
   ungroup() %>%
-  mutate(index = all_years_npue*area,
+  mutate(index = all_years_cpue*area,
          prop = index/sum(index))
 
 # have a look if you want
 # s %>% ggplot()+geom_sf(aes(fill=prop))+scale_fill_viridis()+theme_bw()
 
 # write that out
-s %>% st_set_geometry(NULL) %>% select(.bx0,prop) %>% write.csv('s1s4_1.csv', row.names = FALSE)
+s %>% st_set_geometry(NULL) %>% select(.bx0,prop) %>% write.csv('s1s4_2.csv', row.names = FALSE)
 ```
 
