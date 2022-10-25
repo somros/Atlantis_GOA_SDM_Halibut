@@ -23,6 +23,13 @@ library(kableExtra)
 
 # Purpose
 
+NOTE: we use bottom trawl data for halibut. The maps produced here are intended as a validation / exploration tool. Reasons are:
+
+1. Consistency with the rest of the groundfish.
+2. FISS data not ideal for juveniles.
+3. Difficult spatial extrapolation as CPUE is per line and not area.
+4. Models fitting RACE-GAP data for both stages of halibut converged in both AK and BC.
+
 This document applies the sdmTMB routine to the IPHC FISS data filtered to focus on Pacific halibut *Hippoglossus stenolepis*. This is longline data that cannot be standardized by area like CPUE for the bottom trawl surveys could be. CPUE was calculated as weight of halibut (legal and sublegal) per effective hook for each soak. See file halibut_IPHC.Rmd for details on how the data for the models was created.
 
 Data received from the AKFIN team (Jean Lee) on October 22 2021 - did not query this myself from IPHC.
@@ -474,7 +481,7 @@ paste("Normalised RMSE:", paste0(rmse_cv, "%"), sep = " ")
 
 # S1-S4
 
-For Pacific Halibut, using this data seems a better option than the RACE-GAP data, because the data from BC throw those predictions out of whack.
+While this is dedicated data for halibut and it eliminates the issue of discontinuity with BC, for the reasons listed at the beginning of this document we still use RACE-GAP data for halibut distributions.
 
 The problem is that these are CPUEs in fish weight per hook. Multiplying these by areas makes no sense, but to obtain an abstract abundance index that then we use to work out relative proportions per box it should be OK.
 
